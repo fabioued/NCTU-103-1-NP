@@ -1,0 +1,9 @@
+#!/bin/sh
+
+
+while [ true ]
+do
+    clear
+    ps uxww | grep -e server -e client | sed -e /vim/d -e /grep/d -e /bin/d
+    sleep 3
+done
