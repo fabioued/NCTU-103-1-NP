@@ -11,7 +11,7 @@
 #ifndef PORT
 #define PORT 50001
 #endif
-#define MAX_FORK_NUM 5
+#define MAX_FORK_NUM 2
 
 using namespace std;
 
@@ -38,6 +38,7 @@ void sig_chld(int signo){
     int stat;
     pid_t pid;
     while((pid=waitpid(-1,&stat,WNOHANG))>0){
+        conn_num--;
         printf("Child %d terminate\n",pid);
     }
     checkReFork();
