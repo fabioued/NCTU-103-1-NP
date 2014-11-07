@@ -1,6 +1,7 @@
 #include <iostream>
 #include "arpa/inet.h"
 #include "unistd.h"
+#include "sys/wait.h"
 #include "cstdlib"
 #include "cstring"
 #include <cstdio>
@@ -10,7 +11,7 @@
 #ifndef PORT
 #define PORT 50001
 #endif
-#define MAX_FORK_NUM 5
+#define MAX_FORK_NUM 2
 
 using namespace std;
 
@@ -26,12 +27,29 @@ int accu_array[MAX_FD_NUM];
 int processClient(int fd_peer);    
 void processSelect(int fd_self);
 void processFork(int fd_self);
+void checkReFork(){
+    if(conn_num==0){
+        useSelect = false;
+    }
+}
+
+void sig_chld(int signo){
+    
+    int stat;
+    pid_t pid;
+    while((pid=waitpid(-1,&stat,WNOHANG))>0){
+        conn_num--;
+        printf("Child %d terminate\n",pid);
+    }
+    checkReFork();
+
+}
 
 int main(){
     
     conn_num = 0;
     useSelect = false;
-    signal(SIGCHLD,SIG_IGN);
+    signal(SIGCHLD,sig_chld);
 
     sockaddr_in addr_self,addr_peer;
     socklen_t len_cli;
@@ -64,7 +82,6 @@ int main(){
     while(true){
         if(conn_num>=MAX_FORK_NUM){
             useSelect = true;
-            conn_num = 0;
         } 
         if(useSelect){
             cout << "+++MODE Select+++" << endl;
@@ -184,10 +201,13 @@ void processSelect(int fd_self){
                     fd_array[i] = -1;
                     FD_CLR(fd_cli,&allset);
                     conn_num--;
+                    checkReFork();
+                    /*
                     if(conn_num<=0){
                         cout << "Clients in SELECT down to zero, back to MODE FORK" << endl;
                         useSelect = false;
                     }
+                    */
                 }
                 
                 if(--nready==0){
