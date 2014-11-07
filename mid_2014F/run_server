@@ -1,0 +1,4 @@
+#!/bin/sh -ev
+
+g++ -std=c++11 -O2 -DPORT=$1 -o server.out  server.cpp
+./server.out
