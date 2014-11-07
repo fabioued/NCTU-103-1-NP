@@ -1,0 +1,4 @@
+#!/bin/sh -ev
+
+g++ -std=c++11 -O2 -o client.out  client.cpp
+./client.out 127.0.0.1 $1 $2
