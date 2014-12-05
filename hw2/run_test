@@ -1,0 +1,23 @@
+#!/bin/sh
+if [ $# -ne 1 ] ;then
+    echo "Usage : run_test [file size]"
+    exit
+fi
+
+# build
+make
+# generate test file
+dd if=/dev/urandom of=test_in bs=$1 count=1
+# run receiver in background
+killall receiver.out >> /dev/null 2>&1
+./receiver.out test_out 5000 > /dev/null &
+# run sender
+./sender.out test_in localhost 5000
+# diff check
+echo "Difference Check.."
+diff test_in test_out
+if [ $? -ne 0 ];then
+    echo "***FAIL***"
+else
+    echo "***PASS***"
+fi
