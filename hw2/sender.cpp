@@ -76,10 +76,9 @@ int main(int argc,char** argv){
     }
    
     // set time
-    timeval tv;
+    timeval tv,temp_tv;
     tv.tv_sec = 0;
-    tv.tv_usec = 100*1000;
-    setsockopt(fd_self,SOL_SOCKET,SO_RCVTIMEO,&tv,sizeof(tv));
+    tv.tv_usec = TIME_MS*1000;
 
 
     // Send Info Init
@@ -90,6 +89,11 @@ int main(int argc,char** argv){
     bool send_ok = false;
     HEADER header,recv_header;
     ifstream file(v_filename,ios_base::in | ios_base::binary);
+    
+    fd_set rset,allset;
+    int nready;
+    FD_ZERO(&allset);
+    FD_SET(fd_self,&allset);
     /*
      * sending format: HEADER(sizeof-HEADER) data(MAX_DATA_SIZE)
      *
@@ -127,14 +131,14 @@ int main(int argc,char** argv){
 
 RESEND:
         cout << "Start Re-send" << endl;
-        /*cout << "Pending...";
+        int pend=  0;
         for(int i=0;i<block_read;i++){
             if(!check[i]){
-                
-                cout << i << ' ' ;
+                pend++;
             }
-        }*/
-        cout << endl;
+        }
+        //sleep(1);
+        cout << "Pending..." << pend << endl;
         // start_send
         send_ok = false;
         // send each block
@@ -153,24 +157,33 @@ RESEND:
         do{
 
             len_cli = sizeof(addr_peer);
-            recv_n = read(fd_self,buf,MAX_BUF_SIZE);
-            if(recv_n < 0){
-                if(errno== EWOULDBLOCK){
-                    cout << "Socket timeout, re-send..." << endl;   
-                    goto RESEND;
-                }
-                else{
+            rset = allset;
+            temp_tv = tv;
+            nready = select(fd_self+1,&rset,NULL,NULL,&temp_tv);
+            if(nready == 0) // time out
+            {
+                cout << "Socket timeout, re-send..." << endl;   
+                goto RESEND;
+            }
+            else if(nready < 0){
+                // error occur
+                cout << "Select Error : " << nready << endl;  
+                exit(1);
+            }
+            else{ // readable
+                recv_n = read(fd_self,buf,MAX_BUF_SIZE);
+                if(recv_n < 0){
+                    // end of transfer
                     cout << "The peer has close connection or unknown system error occured." << endl;
                     finished = true;
                     break;
+
                 }
-            }
-            else{
                 // extract header
                 memcpy(&recv_header,buf,sizeof(recv_header));
                 //cout << "Ack , index is " << recv_header.index << ",Block offset : " << recv_header.offset << endl;
-                if(recv_header.offset < GBN_buf[0].ptrH->offset){
-                    cout << "Offset " << recv_header.offset <<" is expired" << endl;   
+                if(recv_header.offset != GBN_buf[0].ptrH->offset){
+                    cout << "Offset " << recv_header.offset <<" is expired , expect : " << GBN_buf[0].ptrH->offset << endl;   
                 }
                 else{ 
                     check[recv_header.index] = true; // mark received

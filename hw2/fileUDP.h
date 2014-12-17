@@ -1,6 +1,8 @@
 #define MAX_BUF_SIZE 2048
 #define MAX_DATA_SIZE  1400
-#define GO_BACK_N 8000
+#define GO_BACK_N 1000
+#define TIME_MS 50
+#define TIME_ALARM 1
 typedef long seq_t;
 struct HEADER{
     bool eof;

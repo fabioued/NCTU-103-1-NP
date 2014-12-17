@@ -11,7 +11,8 @@
 using namespace std;
 
 
-
+go_back_entry GBN_buf[GO_BACK_N];
+extern bool check[GO_BACK_N];
 char buf[MAX_BUF_SIZE];
 char ack_buf[MAX_BUF_SIZE];
 
@@ -60,25 +61,40 @@ int main(int argc,char** argv){
             cout << "Unexpected Error." << endl;
             exit(1);
         }
-        // extract info
+        // extract header
         memcpy(&header,buf,sizeof(HEADER));
         // check offset
         if(header.offset == cur_offset){
-            cout << "Received offset : " << cur_offset << " , data size : "  << header.data_size << endl;
-            cur_offset += header.data_size;
+            //cout << "Received offset : " << cur_offset << " , data size : "  << header.data_size << ", index : " << header.index << endl;
+            memcpy(GBN_buf[header.index].buf,buf,recv_n);
+            GBN_buf[header.index].ptrH = (HEADER*)GBN_buf[header.index].buf;
+            check[header.index] = true;
+            printf("Index : %ld , block read: %ld\n",header.index,header.block_read);
+            if(isAllOK(header.block_read)){
+                cout << "Block " << header.offset << " OK! , next is "<<  header.next_offset << endl;
+                cur_offset = header.next_offset;
+                resetCheck();
+                // write all
+                for(int i=0;i<header.block_read;i++){
+                    //cout << "Writeing..." << i << endl;
+                    file.write(GBN_buf[i].buf+sizeof(HEADER),GBN_buf[i].ptrH->data_size);
+                }
+
+                if(GBN_buf[0].ptrH->eof)
+                {
+                    cout << "Reach EOF" << endl;
+                    break;
+                }
+            }
             // offset as expect, attach file
-            file.write(buf+sizeof(HEADER),header.data_size);
         }
         else{
-            cout << "Duplicate offset : " << header.offset << endl;
+            cout << "Duplicate offset : " << header.offset << " , expect :" << cur_offset << endl;
         }
         // send header back
-        header.offset = cur_offset;
+        //header.offset = cur_offset;
         memcpy(ack_buf,&header,sizeof(HEADER));
         sendto(fd_self,ack_buf,sizeof(HEADER),0,(sockaddr*)&addr_peer,len_cli);
-        if(header.eof){
-            break;
-        }
     }
 
     close(fd_self);

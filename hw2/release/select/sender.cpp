@@ -14,8 +14,12 @@
 
 using namespace std;
 
-char buf[MAX_BUF_SIZE];
 
+
+char buf[MAX_BUF_SIZE];
+go_back_entry GBN_buf[GO_BACK_N];
+
+extern bool check[GO_BACK_N];
 
 int main(int argc,char** argv){
     
@@ -30,6 +34,7 @@ int main(int argc,char** argv){
     char *v_filename = argv[1];
     char *v_hostname = argv[2];
     char *v_port = argv[3];
+
 
 
 
@@ -69,7 +74,13 @@ int main(int argc,char** argv){
         cout << "Connect error" << endl;
         exit(1);
     }
-    
+   
+    // set time
+    timeval tv,temp_tv;
+    tv.tv_sec = 0;
+    tv.tv_usec = TIME_MS*1000;
+
+
     // Send Info Init
     int recv_n;
     seq_t offset = 0,next_offset;
@@ -78,77 +89,113 @@ int main(int argc,char** argv){
     bool send_ok = false;
     HEADER header,recv_header;
     ifstream file(v_filename,ios_base::in | ios_base::binary);
-    // Init select
+    
     fd_set rset,allset;
-    timeval tv,temp_tv;
     int nready;
     FD_ZERO(&allset);
     FD_SET(fd_self,&allset);
-    tv.tv_sec = 0;
-    tv.tv_usec = 40*1000;
-
     /*
      * sending format: HEADER(sizeof-HEADER) data(MAX_DATA_SIZE)
      *
      */
     const int data_offset = sizeof(HEADER);
+    seq_t block_offset = 0;
     const int frame_size = data_offset + MAX_DATA_SIZE;
     int send_size;
     char* send_buf = new char[frame_size+1];
-    
+    int block_read;
+    cout << "Start Main Loop..." << endl;
     while(!finished){
-        // load a block of data into send_buf
-        file.read(send_buf+data_offset,MAX_DATA_SIZE);
-        data_count = file.gcount();
-        // set eof
-        finished = header.eof = file.eof();
-        // fill offset and data_size
-        header.offset = offset;
-        header.data_size = data_count;
-        next_offset = offset + data_count;
-        // copy header to send_buf
-        memcpy(send_buf,&header,sizeof(header));
-        // start_send
-        send_size = sizeof(header) + data_count; 
-        send_ok = false;
+        // load many blocks
+        int i;
+        resetCheck();
+        for(i=0;i<GO_BACK_N&&!finished;i++){    
+            //cout << "Load Block : " << i << endl;
+            // load a block of data into send_buf
+            file.read(GBN_buf[i].buf+data_offset,MAX_DATA_SIZE);
+            data_count = file.gcount();
+            // set eof
+            finished = file.eof();
+            // fill offset and data_size
+            header.offset = block_offset;
+            header.data_size = data_count;
+            offset = offset + data_count;
+            // copy header to send_buf
+            header.index = i;
+            GBN_buf[i].ptrH = (HEADER*)GBN_buf[i].buf;
+            memcpy(GBN_buf[i].buf,&header,sizeof(header));
+        }
+        block_offset = offset;
+        block_read = i;
+        cout << "block read:" << block_read << endl;
 
+RESEND:
+        cout << "Start Re-send" << endl;
+        int pend=  0;
+        for(int i=0;i<block_read;i++){
+            if(!check[i]){
+                pend++;
+            }
+        }
+        //sleep(1);
+        cout << "Pending..." << pend << endl;
+        // start_send
+        send_ok = false;
+        // send each block
+        for(int i=0;i<block_read;i++)
+        {
+            if(check[i]){
+                continue;
+            }
+            GBN_buf[i].ptrH->eof = finished;
+            GBN_buf[i].ptrH->next_offset = offset;
+            GBN_buf[i].ptrH->block_read = block_read;
+            send_size = sizeof(HEADER) + GBN_buf[i].ptrH->data_size; 
+            //cout << "sending ["<< i << "] , offset :" << GBN_buf[i].ptrH->offset << endl;
+            write(fd_self,GBN_buf[i].buf,send_size);
+        }
         do{
-            cout << "sending offset :" << offset << endl;
-            write(fd_self,send_buf,send_size);
+
             len_cli = sizeof(addr_peer);
             rset = allset;
             temp_tv = tv;
             nready = select(fd_self+1,&rset,NULL,NULL,&temp_tv);
-            if(nready > 0) // socket readable, ACK or closed
+            if(nready == 0) // time out
             {
-                recv_n = read(fd_self,buf,MAX_BUF_SIZE);
-                if(recv_n < 0){
-                    cout << "The peer has close connection or unknown system error occured." << endl;
-                    finished = true;
-                    break;
-                }
-                // no response   
-                // extract header
-                memcpy(&recv_header,buf,sizeof(recv_header));
-                cout << "Ack , next offset is " << recv_header.offset << endl;
-                if(recv_header.offset == next_offset)  
-                {
-                    send_ok = true;
-                }
+                cout << "Socket timeout, re-send..." << endl;   
+                goto RESEND;
             }
-            else if(nready==0){
-
-                // else, re-send
-            }
-            else{
+            else if(nready < 0){
                 // error occur
                 cout << "Select Error : " << nready << endl;  
                 exit(1);
             }
+            else{ // readable
+                recv_n = read(fd_self,buf,MAX_BUF_SIZE);
+                if(recv_n < 0){
+                    // end of transfer
+                    cout << "The peer has close connection or unknown system error occured." << endl;
+                    finished = true;
+                    break;
+
+                }
+                // extract header
+                memcpy(&recv_header,buf,sizeof(recv_header));
+                //cout << "Ack , index is " << recv_header.index << ",Block offset : " << recv_header.offset << endl;
+                if(recv_header.offset != GBN_buf[0].ptrH->offset){
+                    cout << "Offset " << recv_header.offset <<" is expired , expect : " << GBN_buf[0].ptrH->offset << endl;   
+                }
+                else{ 
+                    check[recv_header.index] = true; // mark received
+                    if(isAllOK(block_read)){
+                        send_ok = true;
+                    }
+                }
+
+            }
             
         }while(!send_ok);
         // success , migrate next offset
-        offset = next_offset;
     }
     cout << "Terminating" << endl;
     delete[] send_buf;

@@ -69,7 +69,7 @@ int main(int argc,char** argv){
             memcpy(GBN_buf[header.index].buf,buf,recv_n);
             GBN_buf[header.index].ptrH = (HEADER*)GBN_buf[header.index].buf;
             check[header.index] = true;
-            //printf("Index : %ld , block read: %ld\n",header.index,header.block_read);
+            printf("Index : %ld , block read: %ld\n",header.index,header.block_read);
             if(isAllOK(header.block_read)){
                 cout << "Block " << header.offset << " OK! , next is "<<  header.next_offset << endl;
                 cur_offset = header.next_offset;
@@ -89,10 +89,10 @@ int main(int argc,char** argv){
             // offset as expect, attach file
         }
         else{
-            cout << "Duplicate offset : " << header.offset << endl;
+            cout << "Duplicate offset : " << header.offset << " , expect :" << cur_offset << endl;
         }
         // send header back
-        header.offset = cur_offset;
+        //header.offset = cur_offset;
         memcpy(ack_buf,&header,sizeof(HEADER));
         sendto(fd_self,ack_buf,sizeof(HEADER),0,(sockaddr*)&addr_peer,len_cli);
     }
