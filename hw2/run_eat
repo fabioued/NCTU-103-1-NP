@@ -1,0 +1,3 @@
+#!/bin/sh
+g++ --std=c++11 -O2 eater.cpp -o eater.out
+./eater.out 5000

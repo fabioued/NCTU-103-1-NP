@@ -1,2 +1,4 @@
 *.out
 *.swp
+test_in
+test_out
