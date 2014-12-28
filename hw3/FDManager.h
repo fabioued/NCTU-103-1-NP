@@ -7,14 +7,6 @@
 #include "string.h"
 #include "fileManager.h"
 #include "stdio.h"
-#define FD_NONE 0 // this fd haven't specify its type
-#define FD_DATA 1
-#define FD_CMD 2
-#define FD_LISTEN 3
-
-#define PHASE_NONE 0
-#define PHASE_DOING 1
-#define PHASE_END 2
 
 using std::vector;
 using std::array;
@@ -29,15 +21,17 @@ struct fdEntry{
     char* buf;
     char *pBase,*pFront,*pEnd;
     size_t size;
+    bool writeEnd;
     // function
     fdEntry();
     fdEntry(int fd,int type);
+    fdEntry(const fdEntry& rhs) = delete;
+    fdEntry& operator=(const fdEntry& rhs) = delete;
     ~fdEntry();
     void clear();
     void remove();
-    void responseLogin();
-    void setData(const char* vBuf,size_t vSize);
-    size_t flushWrite();
+    void setData(const void*const vBuf,size_t vSize);
+    bool flushWrite();
 };
 
 fdEntry::fdEntry()
@@ -51,6 +45,7 @@ fdEntry::fdEntry(int fd,int type)
     clear();   
 }
 
+
 fdEntry::~fdEntry(){
     delete[] buf;
 }
@@ -59,6 +54,7 @@ void fdEntry::clear(){
     buf = new char[MAX_BUF_SIZE];
     pEnd = pFront = pBase = buf;
     phase = PHASE_NONE;
+    writeEnd = false;
 }
 
 void fdEntry::remove(){
@@ -67,15 +63,10 @@ void fdEntry::remove(){
     clear();
 }
 
-void fdEntry::responseLogin(){
-    cmdHeader header;
-    header.cmdType = CMD_LIST;
-    header.setName(name);
-    sendObject(fd,&header,sizeof(header));
-    printf("Login Response Ready\n");
-} 
 
-void fdEntry::setData(const char* vBuf,size_t vSize){
+
+void fdEntry::setData(const void* const vBuf ,size_t vSize){
+    printf("Appending data : %u\n",vSize);
     // append new data to current data
     char* oldbuf = buf;
     size_t old_size = pEnd - pBase;
@@ -87,7 +78,7 @@ void fdEntry::setData(const char* vBuf,size_t vSize){
     delete[] oldbuf;
 }
 
-size_t fdEntry::flushWrite(){
+bool fdEntry::flushWrite(){
     if(pBase < pEnd){
         // writable, write some
         size_t nW = write(fd,pBase,pEnd - pBase);
@@ -99,6 +90,10 @@ size_t fdEntry::flushWrite(){
         }
         pBase += nW;
     }
+    else{
+        writeEnd = true;
+    }
+    return writeEnd;
 }
 
 struct FDManager{
@@ -130,7 +125,10 @@ void FDManager::addFD(int fd,int type = FD_NONE){
     }
     // not space, add one
     if(!found){
-        data[size++] = fdEntry(fd,type);
+        data[size].fd = fd;
+        data[size].type = type;
+        data[size].used = true;
+        ++size;
         maxfdp1 = max(maxfdp1,fd+1);
     }
 }

@@ -9,3 +9,4 @@ file_test:
 	g++ --std=c++11 file_test.cpp -o file.out
 	./file.out
 both:server client
+	cp client.out ./clientTest

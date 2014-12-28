@@ -2,3 +2,5 @@
 *.swp
 test_in
 test_out
+hw3/server_storage
+hw3/clientTest
