@@ -68,6 +68,9 @@ int socketInit(const char* hostname,unsigned short port){
 void run_client(){
     clientLogin();
 
+    // use select to read from stdin and socket
+    fd_set allset,rset;
+
 }
 
 // send login message to server
@@ -77,7 +80,7 @@ void clientLogin(){
     header.cmdType = CMD_LOGIN;
     header.setName(name);
     sendObject(fd_cmd,&header,sizeof(header));
-    // receive response header
+    // retrive response
     readObject(fd_cmd,&header,sizeof(header));
     if(header.cmdType == CMD_LIST){
         printf("Welcome to the dropbox-like server! : %s\n",name);

@@ -58,7 +58,12 @@ void run_server(){
         nready = select(FDm.maxfdp1,&rset,&wset,NULL,NULL);
         if(nready > 0){
             // foreach FD
-            for(auto& entry:FDm.data){
+            int chk_size = FDm.size;
+            for(int i=0;i<chk_size;i++){
+                auto& entry = FDm.data[i];
+                if(!entry.used){
+                    continue;
+                }
                 if(FD_ISSET(entry.fd,&rset)){
                     // accept socket
                     if(entry.type == FD_LISTEN){
@@ -66,6 +71,8 @@ void run_server(){
                         int new_fd = accept(fd_listen,(sockaddr*)&addr_peer,&len_peer);
                         FDm.addFD(new_fd,FD_NONE); // new fd added, but no specify type, will read type later
                         FD_SET(new_fd,&allRset);
+                        FD_SET(new_fd,&allWset);
+                        setNonBlock(new_fd);
                         cerr << "New FD : " << new_fd << " Arrived" << endl;
                     }
                     else{
@@ -99,6 +106,13 @@ void run_server(){
 
                     }
                 }
+                // writable?
+                if(FD_ISSET(entry.fd,&wset)){ 
+                    if(entry.type != FD_LISTEN){
+                        entry.flushWrite();
+                    }
+                }
+                
             }
 
         }
