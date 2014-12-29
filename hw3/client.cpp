@@ -176,7 +176,7 @@ void processSync(){
             int readSZ = partSizes[i];
             cout << "#";
             cout.flush();
-            usleep(1000);
+            usleep(1000*DELAY_MS);
             if(readSZ > 0){
                 read(fd_data,ptr,readSZ);
                 ptr += readSZ;
@@ -193,11 +193,47 @@ void processSync(){
 }
 
 void processUpload(const string& filename){
-    // send put header
-    cmdHeader header;
-    header.cmdType = CMD_PUT;
-    header.setName(name);
-    strcpy(header.meta.name,filename.c_str());
-    sendObject(fd_cmd,header);
+    // open file
+    fileInfo file;
+    file.load(filename);
+    if(file.size > 500*1024*1024){
+        cerr << "File Too Large (exceeds 500MB)" << endl;
+        return;
+    }
+    fileMeta& meta = file.meta;
+    // each diff meta
+    fprintf(stderr,"[PUT]--> upload file : %s\n",meta.name);
+    // New socket
+    int fd_data = socketInit(pHostname,atoi(pPort));   
+    // cmd header
+    cmdHeader cH;
+    cH.setName(name);
+    cH.cmdType = CMD_PUT;
+    cH.meta = file.meta;
+    sendObject(fd_data,cH);
+    // prepare send
+    char* ptr = file.data;
+    size_t each_size = meta.size / 19;
+    size_t partSizes[20];
+    for(int i=0;i<19;i++){
+        partSizes[i] = each_size;
+    }
+    partSizes[19] = meta.size - 19*each_size;// remaining
+    cout << "Uploading file : " << meta.name << endl;
+    cout << "Progress : [";
+    for(int i=0;i<20;i++){
+        int writeSZ = partSizes[i];
+        cout << "#";
+        cout.flush();
+        usleep(1000*DELAY_MS);
+        if(writeSZ > 0){
+            write(fd_data,ptr,writeSZ);
+            ptr += writeSZ;
+        }
+    }
+    cout << "]" << endl;;
+    cout << "Upload " << meta.name << " complete!" << endl;
+    close(fd_data);
+
 }
 

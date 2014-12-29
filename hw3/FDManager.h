@@ -23,6 +23,7 @@ struct fdEntry{
     size_t size;
     bool writeEnd;
     // function
+    string filename; // for fileupload
     fdEntry();
     fdEntry(int fd,int type);
     fdEntry(const fdEntry& rhs) = delete;
@@ -32,6 +33,9 @@ struct fdEntry{
     void remove();
     void setData(const void*const vBuf,size_t vSize);
     bool flushWrite();
+    void patchRead(const void* buf,size_t vSize);
+    void setReadFile(const fileMeta& meta,const string& fullPath);
+
 };
 
 fdEntry::fdEntry()
@@ -55,9 +59,11 @@ void fdEntry::clear(){
     pEnd = pFront = pBase = buf;
     phase = PHASE_NONE;
     writeEnd = false;
+    filename = "";
 }
 
 void fdEntry::remove(){
+    printf("FD %d remove\n",fd);
     fd = -1;
     used = false;
     clear();
@@ -88,12 +94,36 @@ bool fdEntry::flushWrite(){
                 exit(1);
             }
         }
+        fprintf(stderr,"Write %u bytes\n",nW);
         pBase += nW;
     }
     else{
         writeEnd = true;
     }
-    return writeEnd;
+    return !writeEnd;
+}
+
+
+
+void fdEntry::setReadFile(const fileMeta& meta,const string& fullPath){
+    delete[] buf;
+    buf = new char[meta.size];
+    pBase = buf;
+    pEnd = buf + meta.size; // point to final bytes position
+    fprintf(stderr,"Mem to read:%d\n",pEnd - pBase);
+    filename = fullPath; // filename to store
+}
+
+
+void fdEntry::patchRead(const void* vBuf,size_t vSize){
+    fprintf(stderr,"Patch : %u , remain : %d\n",vSize,pEnd - pBase);
+    memcpy(pBase,vBuf,vSize);
+    pBase += vSize;
+    if(pBase >= pEnd){
+       fprintf(stderr,"File (%d bytes)Read OK!\n",pEnd - buf);
+       phase = PHASE_END;
+       fileInfo::writeAsFile(filename,buf,pEnd - buf);
+    }
 }
 
 struct FDManager{
@@ -129,8 +159,8 @@ void FDManager::addFD(int fd,int type = FD_NONE){
         data[size].type = type;
         data[size].used = true;
         ++size;
-        maxfdp1 = max(maxfdp1,fd+1);
     }
+    maxfdp1 = max(maxfdp1,fd+1);
 }
 
 

@@ -85,11 +85,13 @@ void run_server(){
                         int read_n = read(entry.fd,&buf,MAX_BUF_SIZE);
                         fprintf(stderr,"Read size : %d\n",read_n);
                         if(read_n <= 0){
-                            cerr << "Connection Closed" << endl;
-                            close(entry.fd);
-                            FD_CLR(entry.fd,&allRset);
-                            FD_CLR(entry.fd,&allWset);
-                            entry.remove();
+                            if(errno != EWOULDBLOCK){
+                                cerr << "Connection Closed" << endl;
+                                close(entry.fd);
+                                FD_CLR(entry.fd,&allRset);
+                                FD_CLR(entry.fd,&allWset);
+                                entry.remove();
+                            }
                         }
                         else{
                             if(entry.phase == PHASE_NONE && read_n == sizeof(cmdHeader)){
@@ -110,17 +112,24 @@ void run_server(){
                                     entry.phase = PHASE_DOING;
                                     entry.type = FD_GET;
                                     processFileDownload(entry,main_h);
+                                    break;
                                 case CMD_PUT:
                                     strcpy(entry.name,main_h.name);
                                     fprintf(stderr,"User '%s' want to upload file %s\n",entry.name,main_h.meta.name);
                                     entry.type = FD_PUT;
                                     entry.phase = PHASE_DOING;
+                                    auto& user = pFM->getUserEntry(entry.name);
+                                    entry.setReadFile(main_h.meta,user.filePath(main_h.meta.name));
+                                    FD_CLR(entry.fd,&allWset); // close write way
+                                    FD_CLR(entry.fd,&wset); // close write way
+                                    fprintf(stderr,"Close write FD for %d\n",entry.fd);
+                                    break;
                                 }
                                 
                             }
                             else if(entry.phase == PHASE_DOING && entry.type == FD_PUT){
                                 // user upload file
-                                
+                                entry.patchRead(buf,read_n);  
                             }
                         }
 
@@ -129,8 +138,10 @@ void run_server(){
                 // writable?
                 if(FD_ISSET(entry.fd,&wset)){ 
                     if(entry.type != FD_LISTEN){
-                        if(!entry.flushWrite()){ // no more can write
-                           FD_CLR(entry.fd,&allWset); 
+                        if(!entry.flushWrite() && entry.type == FD_GET){ // no more can write
+                            FD_CLR(entry.fd,&allWset); 
+                            printf("FD %d out of data\n",entry.fd);
+                            entry.remove(); // mark invalid
                         }
                     }
                 }

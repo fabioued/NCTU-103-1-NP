@@ -8,6 +8,7 @@
 #define INIT_FILE_SIZE 1024
 using std::string;
 using std::ifstream;
+using std::ofstream;
 using std::memcpy;
 using std::cout;
 using std::endl;
@@ -17,6 +18,7 @@ struct fileInfo{
     fileInfo();
     ~fileInfo();
     void load(const string& v_filename);
+    static void writeAsFile(const string& filename,const void* buf,size_t size);
     // internal use
     void storeBlock(const char* block,size_t bufSize);
     void expand();
@@ -25,8 +27,13 @@ struct fileInfo{
     char *data;
     size_t size;
     size_t capacity;
+    fileMeta meta;
     string filename;
 };
+void fileInfo::writeAsFile(const string& filename,const void* buf,size_t size){
+   ofstream file(filename);
+   file.write((const char*)buf,size);
+}
 
 fileInfo::fileInfo(){
     loaded = false;
@@ -39,6 +46,7 @@ fileInfo::~fileInfo(){
     delete[] data;
 }
 
+
 void fileInfo::load(const string& v_filename){
     loaded = true;
     filename = v_filename;
@@ -48,10 +56,13 @@ void fileInfo::load(const string& v_filename){
     do{
         file.read(buf,MAX_BUF_SIZE);
         len = file.gcount();
-        cout << "Read block : " << len << endl;
+        //cout << "Read block : " << len << endl;
         storeBlock(buf,len);
         
     }while(file);
+    strncpy(meta.name,filename.c_str(),MAX_NAME_SIZE);
+    meta.name[MAX_NAME_SIZE-1] = '\0';
+    meta.size = size;
 }
 
 void fileInfo::storeBlock(const char* buf,size_t bufSize){

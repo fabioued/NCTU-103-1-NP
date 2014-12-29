@@ -4,6 +4,7 @@
 #include "stdio.h"
 
 #define CREATE_TEST
+#define DELAY_MS 100
 
 #define FD_STDIN 0
 
