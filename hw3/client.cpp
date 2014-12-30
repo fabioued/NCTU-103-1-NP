@@ -16,6 +16,7 @@ void updateDiffFiles();
 void retriveListHeader();
 void processSync();
 void processUpload(const string& filename);
+void showBar(int progress);
 
 int fd_cmd;
 const char* name;
@@ -25,7 +26,9 @@ vector<fileMeta> localFiles;
 vector<fileMeta> diffFiles;
 
 int main(int argc,char** argv){
-    
+#ifdef WRITE_TO_LOG   
+    freopen("Log","a",stderr);
+#endif
     if(argc<4){
         cerr << "Usage : ./client <ip> <port> <username>" << endl;
         exit(1);
@@ -86,7 +89,7 @@ void run_client(){
     while(true){
         rset = allset;
         select(maxfdp1,&rset,NULL,NULL,NULL);
-        if(FD_ISSET(FD_STDIN,&rset)){
+        if(FD_ISSET(FD_STDIN,&rset)){ // stdin command
             // read command
             string cmd;
             cin >> cmd;
@@ -98,7 +101,34 @@ void run_client(){
                 cin >> filename;
                 processUpload(filename);
             }
+            else if(cmd=="/sleep"){
+                string timeStr;
+                cin >> timeStr;
+                int time = stoi(timeStr);
+                cout << "Client starts to sleep" << endl;
+                for(int i=1;i<=time;i++){
+                    cout << "Sleep " << i << endl;
+                    sleep(1);
+                }
+                cout << "Client wakes up" << endl;
+            }
         }
+        if(FD_ISSET(fd_cmd,&rset)){
+            // there is a new command
+            // read header
+            cmdHeader header;
+            bool result = readObject(fd_cmd,header);
+            if(result && header.cmdType == CMD_LIST){
+                fprintf(stderr,"[SYNC] Passive sync for user : %s\n",name);
+                retriveListHeader();
+                processSync();
+            }
+            else{
+                fprintf(stderr,"[WARNING] Server closed\n");
+                return;
+            }
+        }
+
     }
 
 }
@@ -127,6 +157,8 @@ void retriveListHeader(){
     fprintf(stderr,"[LIST] remote file total:%u\n",tH.tCount);
     // retrive file meta
     fileMeta meta;
+    // clear diff
+    diffFiles.clear();
     for(int i=0;i<tH.tCount;i++){
         readObject(fd_cmd,&meta,sizeof(meta));
         fprintf(stderr,"[LIST]--> filename:%s, filesize:%u",meta.name,meta.size);
@@ -156,39 +188,61 @@ void processSync(){
         // New socket
         int fd_data = socketInit(pHostname,atoi(pPort));   
         // cmd header
+        fprintf(stderr,"[GET] Sending Header for file %s, %u\n",entry.name,entry.size);
         cmdHeader cH;
         cH.setName(name);
         cH.cmdType = CMD_GET;
         cH.meta = entry;
         sendObject(fd_data,cH);
+        fprintf(stderr,"[GET] Prepare to download\n");
         // read files
         char* buf = new char[entry.size];
+        bzero(buf,entry.size);
+        
+        
         char* ptr = buf;
         size_t each_size = entry.size / 19;
         size_t partSizes[20];
         for(int i=0;i<19;i++){
-            partSizes[i] = each_size;
+            partSizes[i] = each_size * (1+i);
         }
-        partSizes[19] = entry.size - 19*each_size;// remaining
+        partSizes[19] = entry.size;
         cout << "Downloading file : " << entry.name << endl;
-        cout << "Progress : [";
-        for(int i=0;i<20;i++){
-            int readSZ = partSizes[i];
-            cout << "#";
-            cout.flush();
-            usleep(1000*DELAY_MS);
-            if(readSZ > 0){
-                read(fd_data,ptr,readSZ);
-                ptr += readSZ;
+        
+        int showIndex = 0;
+        size_t read_byte = 0;
+        size_t remain = entry.size;
+        while(read_byte < entry.size){
+            size_t read_n;
+            read_n = read(fd_data,ptr,remain);
+            remain -= read_n;
+            ptr += read_n;
+            read_byte += read_n;
+            for(int i=showIndex;i<20;i++){
+                if(read_byte > partSizes[i]){
+                    showBar(i);
+                    usleep(1000*DELAY_MS);
+                }
+                else{
+                    showIndex = i;
+                    break;
+                }
             }
+                
         }
-        cout << "]" << endl;;
+        for(int i=showIndex;i<20;i++){
+            showBar(i);
+        }
+        
+
         // write to file
         ofstream fout(entry.name);
         fout.write(buf,entry.size);
-        cout << "Download " << entry.name << " complete!" << endl;
+        cout << endl << "Download " << entry.name << " complete!" << endl;
         delete[] buf;
         close(fd_data);
+        // record to local
+        localFiles.push_back(entry);
     }
 }
 
@@ -196,8 +250,8 @@ void processUpload(const string& filename){
     // open file
     fileInfo file;
     file.load(filename);
-    if(file.size > 500*1024*1024){
-        cerr << "File Too Large (exceeds 500MB)" << endl;
+    if(file.size > 1200*1024*1024){
+        cerr << "File Too Large (exceeds 1200MB)" << endl;
         return;
     }
     fileMeta& meta = file.meta;
@@ -220,20 +274,30 @@ void processUpload(const string& filename){
     }
     partSizes[19] = meta.size - 19*each_size;// remaining
     cout << "Uploading file : " << meta.name << endl;
-    cout << "Progress : [";
     for(int i=0;i<20;i++){
         int writeSZ = partSizes[i];
-        cout << "#";
-        cout.flush();
+        showBar(i);
         usleep(1000*DELAY_MS);
         if(writeSZ > 0){
             write(fd_data,ptr,writeSZ);
             ptr += writeSZ;
         }
     }
-    cout << "]" << endl;;
-    cout << "Upload " << meta.name << " complete!" << endl;
+    cout << endl << "Upload " << meta.name << " complete!" << endl;
     close(fd_data);
+    // record to local
+    localFiles.push_back(meta);
 
 }
 
+void showBar(int progress){
+    cout << "\rProgress : [";
+    for(int i=0;i<=progress;i++){
+        cout << '#';        
+    }
+    for(int i=progress+1;i<20;i++){
+        cout << ' ';
+    }
+    cout << ']';
+    cout.flush();
+}

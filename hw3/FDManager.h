@@ -22,6 +22,8 @@ struct fdEntry{
     char *pBase,*pFront,*pEnd;
     size_t size;
     bool writeEnd;
+    fileMeta meta; // for transfer use
+    size_t total;
     // function
     string filename; // for fileupload
     fdEntry();
@@ -33,7 +35,7 @@ struct fdEntry{
     void remove();
     void setData(const void*const vBuf,size_t vSize);
     bool flushWrite();
-    void patchRead(const void* buf,size_t vSize);
+    bool patchRead(const void* buf,size_t vSize);
     void setReadFile(const fileMeta& meta,const string& fullPath);
 
 };
@@ -58,12 +60,14 @@ void fdEntry::clear(){
     buf = new char[MAX_BUF_SIZE];
     pEnd = pFront = pBase = buf;
     phase = PHASE_NONE;
+    type = FD_NONE;
     writeEnd = false;
     filename = "";
 }
 
 void fdEntry::remove(){
     printf("FD %d remove\n",fd);
+    close(fd);
     fd = -1;
     used = false;
     clear();
@@ -72,7 +76,7 @@ void fdEntry::remove(){
 
 
 void fdEntry::setData(const void* const vBuf ,size_t vSize){
-    printf("Appending data : %u\n",vSize);
+    //fprintf(stderr,"Remaining size : %d , Appending data : %u\n",pEnd-pBase,vSize);
     // append new data to current data
     char* oldbuf = buf;
     size_t old_size = pEnd - pBase;
@@ -81,6 +85,8 @@ void fdEntry::setData(const void* const vBuf ,size_t vSize){
     memcpy(buf+old_size,vBuf,vSize);
     pBase = pFront = buf;
     pEnd = pBase + vSize + old_size;
+    writeEnd = false;
+    total = 0;
     delete[] oldbuf;
 }
 
@@ -94,10 +100,18 @@ bool fdEntry::flushWrite(){
                 exit(1);
             }
         }
-        fprintf(stderr,"Write %u bytes\n",nW);
+        total += nW;
         pBase += nW;
+        //fprintf(stderr,"Write %u bytes , remain %d bytes\n",nW,pEnd - pBase);
     }
     else{
+        if(!writeEnd){
+            fprintf(stderr,"Write buffer empty.\n");
+        }
+        if (total > 0){
+            fprintf(stderr,"Total written  : %u\n",total);
+            total = 0;
+        }
         writeEnd = true;
     }
     return !writeEnd;
@@ -108,6 +122,7 @@ bool fdEntry::flushWrite(){
 void fdEntry::setReadFile(const fileMeta& meta,const string& fullPath){
     delete[] buf;
     buf = new char[meta.size];
+    fprintf(stderr,"[Meta] File %s,  size : %u\n",meta.name,meta.size);
     pBase = buf;
     pEnd = buf + meta.size; // point to final bytes position
     fprintf(stderr,"Mem to read:%d\n",pEnd - pBase);
@@ -115,14 +130,17 @@ void fdEntry::setReadFile(const fileMeta& meta,const string& fullPath){
 }
 
 
-void fdEntry::patchRead(const void* vBuf,size_t vSize){
-    fprintf(stderr,"Patch : %u , remain : %d\n",vSize,pEnd - pBase);
+bool fdEntry::patchRead(const void* vBuf,size_t vSize){
+    //fprintf(stderr,"Patch : %u , remain : %d\n",vSize,pEnd - pBase);
     memcpy(pBase,vBuf,vSize);
     pBase += vSize;
     if(pBase >= pEnd){
        fprintf(stderr,"File (%d bytes)Read OK!\n",pEnd - buf);
-       phase = PHASE_END;
        fileInfo::writeAsFile(filename,buf,pEnd - buf);
+        return false;
+    }
+    else{
+        return true;
     }
 }
 

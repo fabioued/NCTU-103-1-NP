@@ -3,12 +3,13 @@
 
 #include "stdio.h"
 
-#define CREATE_TEST
-#define DELAY_MS 100
+//#define CREATE_TEST
+#define DELAY_MS 0
+#define WRITE_TO_LOG
 
 #define FD_STDIN 0
 
-#define MAX_BUF_SIZE 2048
+#define MAX_BUF_SIZE 20480
 #define MAX_NAME_SIZE 255
 #define MAX_FD 100
 
@@ -96,7 +97,7 @@ void readObject(int fd,void* obj,size_t size){
 }
 
 template<typename T>
-void readObject(int fd,T& rObj){
+bool readObject(int fd,T& rObj){
     void* obj = &rObj;
     size_t size =  sizeof(rObj); 
     char buf[MAX_BUF_SIZE];
@@ -104,7 +105,9 @@ void readObject(int fd,T& rObj){
     fprintf(stderr,"Object Read:%d\n",read_n);
     if(read_n == size){
         memcpy(obj,buf,size);        
+        return true;
     }
+    return false;
 }
 
 #endif

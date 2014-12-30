@@ -11,6 +11,7 @@ using std::ifstream;
 using std::ofstream;
 using std::memcpy;
 using std::cout;
+using std::cerr;
 using std::endl;
 
 struct fileInfo{
@@ -68,6 +69,7 @@ void fileInfo::load(const string& v_filename){
 void fileInfo::storeBlock(const char* buf,size_t bufSize){
     while(size + bufSize > capacity){
         expand();
+        //cerr << "[EXPAND] Current Size :"  << size << " , Capacity:" << capacity << endl;
     }
     memcpy(data+size,buf,bufSize);
     size += bufSize;

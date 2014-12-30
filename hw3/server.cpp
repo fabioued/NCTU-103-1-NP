@@ -23,6 +23,7 @@ FDManager* pFD;
 fileManager* pFM;
 
 int main(int argc,char** argv){
+    freopen("Log","a",stderr);
     // usage
     if(argc < 2){
         cerr << "Usage : ./server <port>" << endl;
@@ -76,14 +77,21 @@ void run_server(){
                         FD_SET(new_fd,&allRset);
                         FD_SET(new_fd,&allWset);
                         setNonBlock(new_fd);
-                        cerr << "New FD : " << new_fd << " Arrived" << endl;
+                        cout << "New FD : " << new_fd << " Arrived" << endl;
                     }
                     else{
                     
-                        fprintf(stderr,"FD %d is readable!\n",entry.fd);
+                        //fprintf(stderr,"FD %d is readable!\n",entry.fd);
                         // extract main header
-                        int read_n = read(entry.fd,&buf,MAX_BUF_SIZE);
-                        fprintf(stderr,"Read size : %d\n",read_n);
+                        int read_n,readSize;
+                        if(entry.phase == PHASE_NONE){
+                            readSize = sizeof(cmdHeader);
+                        }
+                        else{
+                            readSize = MAX_BUF_SIZE;
+                        }
+                        read_n = read(entry.fd,&buf,readSize);
+                        //fprintf(stderr,"Read size : %d\n",read_n);
                         if(read_n <= 0){
                             if(errno != EWOULDBLOCK){
                                 cerr << "Connection Closed" << endl;
@@ -98,28 +106,30 @@ void run_server(){
                                 // set select write
                                 FD_SET(entry.fd,&allWset);
                                 cmdHeader& main_h = *(cmdHeader*)(buf);
-                                fprintf(stderr,"Load Header from %s, command code is %d\n",main_h.name,main_h.cmdType);
+                                fprintf(stdout,"Load Header from %s, command code is %d\n",main_h.name,main_h.cmdType);
                                 switch(main_h.cmdType){
                                 case CMD_LOGIN:
-                                    fprintf(stderr,"User '%s' login success\n",main_h.name);
+                                    fprintf(stdout,"User '%s' login success\n",main_h.name);
                                     fileM.addUser(main_h.name);
                                     strcpy(entry.name,main_h.name);
+                                    entry.type = FD_CMD;
                                     processList(entry);
                                     break;
                                 case CMD_GET:
                                     strcpy(entry.name,main_h.name);
-                                    fprintf(stderr,"User '%s' require file download\n",entry.name);
+                                    fprintf(stdout,"User '%s' require file download\n",entry.name);
                                     entry.phase = PHASE_DOING;
                                     entry.type = FD_GET;
                                     processFileDownload(entry,main_h);
                                     break;
                                 case CMD_PUT:
                                     strcpy(entry.name,main_h.name);
-                                    fprintf(stderr,"User '%s' want to upload file %s\n",entry.name,main_h.meta.name);
+                                    fprintf(stdout,"User '%s' want to upload file %s\n",entry.name,main_h.meta.name);
                                     entry.type = FD_PUT;
                                     entry.phase = PHASE_DOING;
                                     auto& user = pFM->getUserEntry(entry.name);
                                     entry.setReadFile(main_h.meta,user.filePath(main_h.meta.name));
+                                    entry.meta = main_h.meta;
                                     FD_CLR(entry.fd,&allWset); // close write way
                                     FD_CLR(entry.fd,&wset); // close write way
                                     fprintf(stderr,"Close write FD for %d\n",entry.fd);
@@ -129,7 +139,27 @@ void run_server(){
                             }
                             else if(entry.phase == PHASE_DOING && entry.type == FD_PUT){
                                 // user upload file
-                                entry.patchRead(buf,read_n);  
+                                if(!entry.patchRead(buf,read_n)){
+                                    // upload finished
+                                    // add new file to list
+                                    auto& user = fileM.getUserEntry(entry.name);
+                                    user.files.push_back(entry.meta);
+                                    fprintf(stdout,"User '%s' has upload file '%s'\n",user.name,entry.meta.name);
+                                    // do sync
+                                    // do list for all FD_CMD with same user name
+                                    for(int k=0;k<FDm.size;k++){
+                                        auto& other_entry = FDm.data[k];
+                                        if(other_entry.used && other_entry.type == FD_CMD && strcmp(other_entry.name,entry.name)==0){
+                                            // in use and is a CMD
+                                            fprintf(stdout,"Push update list to %d\n",other_entry.fd);
+                                            processList(other_entry);
+                                        }
+                                    }
+                                    // close current FD
+                                    FD_CLR(entry.fd,&allRset); // close read way
+                                    entry.remove(); // remove
+
+                                }
                             }
                         }
 
@@ -140,6 +170,7 @@ void run_server(){
                     if(entry.type != FD_LISTEN){
                         if(!entry.flushWrite() && entry.type == FD_GET){ // no more can write
                             FD_CLR(entry.fd,&allWset); 
+                            FD_CLR(entry.fd,&allRset); 
                             printf("FD %d out of data\n",entry.fd);
                             entry.remove(); // mark invalid
                         }
@@ -209,12 +240,12 @@ void processList(fdEntry& entry){
         entry.setData(&FEntry,sizeof(FEntry));
     }
     
-    fprintf(stderr,"Login Response Ready\n");
+    fprintf(stderr,"List Response Ready\n");
 }
 
 void processFileDownload(fdEntry& entry,cmdHeader header){
     // retrive transfer header
-    fprintf(stderr,"[GET] user '%s' require file '%s'\n",entry.name,header.meta.name);
+    fprintf(stdout,"[GET] user '%s' require file '%s'\n",entry.name,header.meta.name);
     // get user entry
     auto& user = pFM->getUserEntry(entry.name);
     // get that file
