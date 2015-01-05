@@ -135,12 +135,14 @@ void run_client(){
 
 // send login message to server
 void clientLogin(){
+    fprintf(stderr,"Strart Sending Login Info...\n");
     // send login header
     cmdHeader header;
     header.cmdType = CMD_LOGIN;
     header.setName(name);
     sendObject(fd_cmd,header);
     // retrive response
+    fprintf(stderr,"Login Sended, Retrive response...\n");
     readObject(fd_cmd,&header,sizeof(header));
     if(header.cmdType == CMD_LIST){
         printf("Welcome to the dropbox-like server! : %s\n",name);

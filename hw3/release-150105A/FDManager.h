@@ -20,10 +20,13 @@ struct fdEntry{
     char name[MAX_NAME_SIZE];
     char* buf;
     char *pBase,*pFront,*pEnd;
+    char* rbuf;
+    char *rBase,*rFront,*rEnd;
     size_t size;
     bool writeEnd;
     fileMeta meta; // for transfer use
     size_t total;
+    bool readEnd;
     // function
     string filename; // for fileupload
     fdEntry();
@@ -34,10 +37,11 @@ struct fdEntry{
     void clear();
     void remove();
     void setData(const void*const vBuf,size_t vSize);
+    void setReadHeader();
     bool flushWrite();
     bool patchRead(const void* buf,size_t vSize);
     void setReadFile(const fileMeta& meta,const string& fullPath);
-
+    void writeBufferAsFile();
 };
 
 fdEntry::fdEntry()
@@ -54,14 +58,18 @@ fdEntry::fdEntry(int fd,int type)
 
 fdEntry::~fdEntry(){
     delete[] buf;
+    delete[] rbuf;
 }
 
 void fdEntry::clear(){
     buf = new char[MAX_BUF_SIZE];
+    rbuf = new char[MAX_BUF_SIZE];
     pEnd = pFront = pBase = buf;
+    rEnd = rFront = rBase = rbuf;
     phase = PHASE_NONE;
     type = FD_NONE;
     writeEnd = false;
+    readEnd = false;
     filename = "";
 }
 
@@ -76,7 +84,7 @@ void fdEntry::remove(){
 
 
 void fdEntry::setData(const void* const vBuf ,size_t vSize){
-    //fprintf(stderr,"Remaining size : %d , Appending data : %u\n",pEnd-pBase,vSize);
+    fprintf(stderr,"Remaining size : %d , Appending data : %u\n",pEnd-pBase,vSize);
     // append new data to current data
     char* oldbuf = buf;
     size_t old_size = pEnd - pBase;
@@ -102,7 +110,7 @@ bool fdEntry::flushWrite(){
         }
         total += nW;
         pBase += nW;
-        //fprintf(stderr,"Write %u bytes , remain %d bytes\n",nW,pEnd - pBase);
+        fprintf(stderr,"Write %u bytes , remain %d bytes\n",nW,pEnd - pBase);
     }
     else{
         if(!writeEnd){
@@ -120,23 +128,32 @@ bool fdEntry::flushWrite(){
 
 
 void fdEntry::setReadFile(const fileMeta& meta,const string& fullPath){
-    delete[] buf;
-    buf = new char[meta.size];
+    delete[] rbuf;
+    rbuf = new char[meta.size];
     fprintf(stderr,"[Meta] File %s,  size : %u\n",meta.name,meta.size);
-    pBase = buf;
-    pEnd = buf + meta.size; // point to final bytes position
-    fprintf(stderr,"Mem to read:%d\n",pEnd - pBase);
+    rBase = rbuf;
+    rEnd = rbuf + meta.size; // point to final bytes position
+    fprintf(stderr,"Mem to read:%d\n",rEnd - rBase);
     filename = fullPath; // filename to store
 }
 
+void fdEntry::setReadHeader(){
+    delete[] rbuf;
+    rbuf = new char[sizeof(cmdHeader)];
+    rBase = rbuf;
+    rEnd = rbuf + sizeof(cmdHeader);
+}
+
+void fdEntry::writeBufferAsFile(){
+    fprintf(stderr,"File (%d bytes)Read OK!\n",rEnd - rbuf);
+    fileInfo::writeAsFile(filename,rbuf,rEnd - rbuf);
+}
 
 bool fdEntry::patchRead(const void* vBuf,size_t vSize){
-    //fprintf(stderr,"Patch : %u , remain : %d\n",vSize,pEnd - pBase);
-    memcpy(pBase,vBuf,vSize);
-    pBase += vSize;
-    if(pBase >= pEnd){
-       fprintf(stderr,"File (%d bytes)Read OK!\n",pEnd - buf);
-       fileInfo::writeAsFile(filename,buf,pEnd - buf);
+    fprintf(stderr,"Patch : %u , remain : %d\n",vSize,rEnd - rBase);
+    memcpy(rBase,vBuf,vSize);
+    rBase += vSize;
+    if(rBase >= rEnd){
         return false;
     }
     else{
@@ -147,7 +164,7 @@ bool fdEntry::patchRead(const void* vBuf,size_t vSize){
 struct FDManager{
     // functions
     FDManager();
-    void addFD(int fd,int type); 
+    fdEntry& addFD(int fd,int type); 
     // data
     int maxfdp1;
     array<fdEntry,MAX_FD> data;
@@ -159,12 +176,14 @@ FDManager::FDManager(){
     size = 0;
 }
 
-void FDManager::addFD(int fd,int type = FD_NONE){
+fdEntry& FDManager::addFD(int fd,int type = FD_NONE){
     // search all
+    fdEntry* pE;
     bool found = false;
     for(int i=0;i<size;i++){
         auto& entry = data[i];
         if(!entry.used){
+            pE = &entry;
             entry.fd = fd;
             entry.used = true;
             found = true;
@@ -176,8 +195,10 @@ void FDManager::addFD(int fd,int type = FD_NONE){
         data[size].fd = fd;
         data[size].type = type;
         data[size].used = true;
+        pE = &data[size];
         ++size;
     }
     maxfdp1 = max(maxfdp1,fd+1);
+    return *pE;
 }
 #endif

@@ -23,7 +23,9 @@ FDManager* pFD;
 fileManager* pFM;
 
 int main(int argc,char** argv){
-    freopen("Log","a",stderr);
+#ifdef LOG_TO_FILE
+    freopen("ServerLog","a",stderr);
+#endif
     // usage
     if(argc < 2){
         cerr << "Usage : ./server <port>" << endl;
@@ -73,25 +75,26 @@ void run_server(){
                     if(entry.type == FD_LISTEN){
                         len_peer = sizeof(sockaddr_in);
                         int new_fd = accept(fd_listen,(sockaddr*)&addr_peer,&len_peer);
-                        FDm.addFD(new_fd,FD_NONE); // new fd added, but no specify type, will read type later
+                        auto& newEntry = FDm.addFD(new_fd,FD_NONE); // new fd added, but no specify type, will read type later
                         FD_SET(new_fd,&allRset);
                         FD_SET(new_fd,&allWset);
                         setNonBlock(new_fd);
                         cout << "New FD : " << new_fd << " Arrived" << endl;
+                        newEntry.setReadHeader();
                     }
                     else{
                     
-                        //fprintf(stderr,"FD %d is readable!\n",entry.fd);
+                        fprintf(stderr,"FD %d is readable!\n",entry.fd);
                         // extract main header
                         int read_n,readSize;
                         if(entry.phase == PHASE_NONE){
-                            readSize = sizeof(cmdHeader);
+                            readSize = entry.rEnd - entry.rBase;
                         }
                         else{
                             readSize = MAX_BUF_SIZE;
                         }
                         read_n = read(entry.fd,&buf,readSize);
-                        //fprintf(stderr,"Read size : %d\n",read_n);
+                        fprintf(stderr,"Read size : %d\n",read_n);
                         if(read_n <= 0){
                             if(errno != EWOULDBLOCK){
                                 cerr << "Connection Closed" << endl;
@@ -102,44 +105,49 @@ void run_server(){
                             }
                         }
                         else{
-                            if(entry.phase == PHASE_NONE && read_n == sizeof(cmdHeader)){
-                                // set select write
-                                FD_SET(entry.fd,&allWset);
-                                cmdHeader& main_h = *(cmdHeader*)(buf);
-                                fprintf(stdout,"Load Header from %s, command code is %d\n",main_h.name,main_h.cmdType);
-                                switch(main_h.cmdType){
-                                case CMD_LOGIN:
-                                    fprintf(stdout,"User '%s' login success\n",main_h.name);
-                                    fileM.addUser(main_h.name);
-                                    strcpy(entry.name,main_h.name);
-                                    entry.type = FD_CMD;
-                                    processList(entry);
-                                    break;
-                                case CMD_GET:
-                                    strcpy(entry.name,main_h.name);
-                                    fprintf(stdout,"User '%s' require file download\n",entry.name);
-                                    entry.phase = PHASE_DOING;
-                                    entry.type = FD_GET;
-                                    processFileDownload(entry,main_h);
-                                    break;
-                                case CMD_PUT:
-                                    strcpy(entry.name,main_h.name);
-                                    fprintf(stdout,"User '%s' want to upload file %s\n",entry.name,main_h.meta.name);
-                                    entry.type = FD_PUT;
-                                    entry.phase = PHASE_DOING;
-                                    auto& user = pFM->getUserEntry(entry.name);
-                                    entry.setReadFile(main_h.meta,user.filePath(main_h.meta.name));
-                                    entry.meta = main_h.meta;
-                                    FD_CLR(entry.fd,&allWset); // close write way
-                                    FD_CLR(entry.fd,&wset); // close write way
-                                    fprintf(stderr,"Close write FD for %d\n",entry.fd);
-                                    break;
-                                }
-                                
+                            if(entry.phase == PHASE_NONE ){
+                                // reading header
+                                if(!entry.patchRead(buf,read_n)){
+                                    // copy header
+                                    // set select write
+                                    FD_SET(entry.fd,&allWset);
+                                    cmdHeader& main_h = *(cmdHeader*)(entry.rbuf);
+                                    fprintf(stdout,"Load Header from %s, command code is %d\n",main_h.name,main_h.cmdType);
+                                    switch(main_h.cmdType){
+                                    case CMD_LOGIN:
+                                        fprintf(stdout,"User '%s' login success\n",main_h.name);
+                                        fileM.addUser(main_h.name);
+                                        strcpy(entry.name,main_h.name);
+                                        entry.type = FD_CMD;
+                                        processList(entry);
+                                        entry.setReadHeader();
+                                        break;
+                                    case CMD_GET:
+                                        strcpy(entry.name,main_h.name);
+                                        fprintf(stdout,"User '%s' require file download\n",entry.name);
+                                        entry.phase = PHASE_DOING;
+                                        entry.type = FD_GET;
+                                        processFileDownload(entry,main_h);
+                                        break;
+                                    case CMD_PUT:
+                                        strcpy(entry.name,main_h.name);
+                                        fprintf(stdout,"User '%s' want to upload file %s\n",entry.name,main_h.meta.name);
+                                        entry.type = FD_PUT;
+                                        entry.phase = PHASE_DOING;
+                                        auto& user = pFM->getUserEntry(entry.name);
+                                        entry.setReadFile(main_h.meta,user.filePath(main_h.meta.name));
+                                        entry.meta = main_h.meta;
+                                        FD_CLR(entry.fd,&allWset); // close write way
+                                        FD_CLR(entry.fd,&wset); // close write way
+                                        fprintf(stderr,"Close write FD for %d\n",entry.fd);
+                                        break;
+                                    }
+                                }  
                             }
                             else if(entry.phase == PHASE_DOING && entry.type == FD_PUT){
                                 // user upload file
                                 if(!entry.patchRead(buf,read_n)){
+                                    entry.writeBufferAsFile();
                                     // upload finished
                                     // add new file to list
                                     auto& user = fileM.getUserEntry(entry.name);
@@ -221,6 +229,7 @@ int socketInit(){
 
 
 void processList(fdEntry& entry){
+    fprintf(stderr,"Listing...\n");
     const char* name = entry.name;
     // main header
     cmdHeader header;

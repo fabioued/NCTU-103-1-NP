@@ -6,10 +6,11 @@
 //#define CREATE_TEST
 #define DELAY_MS 0
 #define WRITE_TO_LOG
+//#define HEADER_DUMMY
 
 #define FD_STDIN 0
 
-#define MAX_BUF_SIZE 20480
+#define MAX_BUF_SIZE 70000
 #define MAX_NAME_SIZE 255
 #define MAX_FD 100
 
@@ -34,6 +35,7 @@
 
 
 
+
 //// FILE META
 struct fileMeta{
     char name[MAX_NAME_SIZE];
@@ -50,6 +52,9 @@ bool fileMeta::operator==(const fileMeta& rhs){
 struct cmdHeader{
     char name[MAX_NAME_SIZE];
     int cmdType;
+#ifdef HEADER_DUMMY
+    char dum[65536];
+#endif
     fileMeta meta;
     void setName(const char* vName);
 };
@@ -87,27 +92,41 @@ void sendObject(int fd,T& obj){
     write(fd,&obj,sizeof(obj));
 }
 
-void readObject(int fd,void* obj,size_t size){
+void readObject(int fd,void* Pobj,size_t size){
+    char* obj = (char*)Pobj;
     char buf[MAX_BUF_SIZE];
-    int read_n = read(fd,buf,size);
-    //fprintf(stderr,"Object Read:%d\n",read_n);
-    if(read_n == size){
-        memcpy(obj,buf,size);        
+    size_t offset = 0;
+    int read_n;
+    while(size > 0){
+        read_n = read(fd,buf,size > MAX_BUF_SIZE ? MAX_BUF_SIZE : size );
+        if(read_n <= 0){
+            return;
+        }
+        fprintf(stderr,"Object Read:%d\n",read_n);
+        size -= read_n;
+        memcpy(obj+offset,buf,read_n);
+        offset += read_n;
     }
 }
 
 template<typename T>
 bool readObject(int fd,T& rObj){
-    void* obj = &rObj;
+    char* obj = (char*)&rObj;
     size_t size =  sizeof(rObj); 
     char buf[MAX_BUF_SIZE];
-    int read_n = read(fd,buf,size);
-    fprintf(stderr,"Object Read:%d\n",read_n);
-    if(read_n == size){
-        memcpy(obj,buf,size);        
-        return true;
+    int read_n;
+    size_t offset = 0;
+    while(size > 0){
+        read_n = read(fd,buf,size > MAX_BUF_SIZE ? MAX_BUF_SIZE : size );
+        if(read_n <= 0){
+            return false;
+        }
+        fprintf(stderr,"Object Read:%d\n",read_n);
+        size -= read_n;
+        memcpy(obj+offset,buf,read_n);
+        offset += read_n;
     }
-    return false;
+    return true;
 }
 
 #endif
