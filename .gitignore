@@ -2,3 +2,8 @@
 *.swp
 test_in
 test_out
+hw3/server_storage
+hw3/clientTest*
+hw3/L*
+hw3/K*
+hw3/G*

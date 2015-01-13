@@ -1,0 +1,6 @@
+#!/bin/sh
+mkdir $1
+for i in $(seq 1 $2)
+do
+    dd if=/dev/urandom of=$1/test_$i bs=$(($RANDOM  + 1 )) count=1
+done
