@@ -1,6 +1,10 @@
-#include "countUDP.h"
+#include <string>
+#include "errno.h"
+#include <iostream>
 #include "netdb.h"
 #include <sstream>
+
+#include "countTCP.h"
 
 using namespace std;
 
@@ -37,7 +41,7 @@ int socketInit(const char* hostname,unsigned short port){
     addr_self.sin_port = htons(port);
     memcpy(&addr_self.sin_addr,host->h_addr,host->h_length);
 
-    fd_self = socket(AF_INET,SOCK_DGRAM,0);
+    fd_self = socket(AF_INET,SOCK_STREAM,0);
 
     if(fd_self < 0){
         cout << "create socket failed." << endl;
@@ -64,7 +68,7 @@ void mainLoop(int fd){
     int maxfdp1 = max(fd,FD_STDIN) + 1;
     int nready;
     bool stdinClose = false;
-    char buf[MAX_BUF_SIZE];
+    Entry ent;
     while(true){
         rset = allset;
         nready = select(maxfdp1,&rset,NULL,NULL,NULL);
@@ -80,41 +84,39 @@ void mainLoop(int fd){
                     break;
                 }
                 else{
-                    // send number to server
-                    bzero(buf,MAX_BUF_SIZE);
-                    snprintf(buf,MAX_BUF_SIZE,"%d",number);
-                    write(fd,buf,strlen(buf));  
+                    ent.type = T_NUM;
+                    ent.num = number;
+                    writeObject(fd,ent);
                 }
             }
             // socket
             if(FD_ISSET(fd,&rset)){
                 // read it !
-                bzero(buf,MAX_BUF_SIZE);
-                int read_n = read(fd,buf,MAX_BUF_SIZE);
-                if(read_n <= 0){
-                    cout << "Server Closed" << endl;
+                switch(readObject(fd,ent)){
+                case E_CLOSED: case E_PREMATURE:
+                    cerr << "[WARNING] Server closed" << endl;
+                    return;
                     break;
-                }
-                else{
-                    cerr << "[READ] " << buf;
-                    // parsing
-                    stringstream ss;
-                    int readNum; 
-                    string cmd,numStr;
-                    ss << buf;
-                    ss >> cmd >> numStr;
-                    readNum = stoi(numStr);
-                    if(cmd=="Sum"){
-                        cout << "Sum is " << readNum << endl;
+                case E_ERROR:
+                    cerr << "[SEVERE] Unknown error" << endl;
+                    return;
+                    break;
+                case E_SUCCESS:
+                    if(ent.type == T_WARN){
+                        // warn message
+                        ent.type = T_NUM;
+                        // re-send
+                        writeObject(fd,ent);
                     }
-                    else if(cmd=="WARN")  
-                    {
-                        cerr << "[WARN] Reply : " << readNum << endl;
-                        // send number to server
-                        bzero(buf,MAX_BUF_SIZE);
-                        snprintf(buf,MAX_BUF_SIZE,"%d",readNum);
-                        write(fd,buf,strlen(buf));  
+                    else if(ent.type == T_SUM){
+                        // sum
+                        cout << "Sum " << ent.num << endl;
                     }
+                    else{
+                        cerr << "[SEVERE] Unknown command from server" << endl;
+                    }
+                    break;
+
                     
                 }
 
